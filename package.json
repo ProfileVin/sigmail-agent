@@ -1,0 +1,31 @@
+{
+  "name": "sigmail-agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "SignalWire AI phone agent that reads one Gmail inbox to an authorized caller",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "tsx watch --env-file=.env src/index.ts",
+    "start": "tsx --env-file=.env src/index.ts",
+    "authorize": "tsx --env-file-if-exists=.env scripts/authorize.ts",
+    "swaig": "tsx node_modules/@signalwire/sdk/dist/cli/swaig-test.js src/index.ts --env-file .env",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@googleapis/gmail": "^22.0.2",
+    "@signalwire/sdk": "^3.7.1",
+    "google-auth-library": "^11.3.1",
+    "html-to-text": "^10.0.1"
+  },
+  "devDependencies": {
+    "@types/html-to-text": "^9.0.4",
+    "@types/node": "^26.6.5",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
+  }
+}
