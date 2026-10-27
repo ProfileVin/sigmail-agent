@@ -25,7 +25,7 @@ afterAll(() => {
 function setup() {
   const mailbox: Mailbox = {
     unreadCount: vi.fn(async () => 1),
-    search: vi.fn(async () => [{ id: 'm1', from: 'Jane <j@example.com>', subject: 'Hi', date: null, unread: true }]),
+    search: vi.fn(async () => ({ emails: [{ id: 'm1', from: 'Jane <j@example.com>', subject: 'Hi', date: null, unread: true }] })),
     read: vi.fn(async () => {
       throw new Error('not used');
     }),
@@ -86,7 +86,7 @@ describe('buildAgent', () => {
     const { verbs, functions } = await ctx.startCall('c-1', ALLOWED);
     expect(verbs).toEqual(['answer', 'ai']);
     const active = Object.fromEntries(functions.map((f) => [f.function, f.active ?? true]));
-    expect(active).toMatchObject({ verify_pin: true, check_inbox: true, search_emails: true, read_email: true });
+    expect(active).toMatchObject({ verify_pin: true, check_inbox: true, search_emails: true, more_emails: true, read_email: true });
     expect(JSON.stringify(functions)).not.toContain(REJECTION_MESSAGE);
   });
 

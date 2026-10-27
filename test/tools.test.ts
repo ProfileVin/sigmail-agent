@@ -11,12 +11,29 @@ const inbox: EmailSummary[] = [
   { id: 'm2', from: 'billing@example.com', subject: '', date: new Date('2026-10-25T16:00:00Z'), unread: false },
 ];
 
+/** Five emails served in pages; the page token is the index of the page's first email. */
+const longInbox: EmailSummary[] = Array.from({ length: 5 }, (_, i) => ({
+  id: `p${i + 1}`,
+  from: `Sender ${i + 1} <s${i + 1}@example.com>`,
+  subject: `Note ${i + 1}`,
+  date: new Date('2026-10-26T15:15:00Z'),
+  unread: true,
+}));
+
+function pagedSearch(emails: EmailSummary[]) {
+  return vi.fn(async (_query: string, max: number, pageToken?: string) => {
+    const start = Number(pageToken ?? 0);
+    const end = start + max;
+    return { emails: emails.slice(start, end), nextPageToken: end < emails.length ? String(end) : undefined };
+  });
+}
+
 function fakeMailbox(overrides: Partial<Mailbox> = {}): Mailbox {
   return {
     unreadCount: vi.fn(async () => 7),
-    search: vi.fn(async (_query: string, max: number) => inbox.slice(0, max)),
+    search: pagedSearch(inbox),
     read: vi.fn(async (id: string): Promise<EmailDetail> => ({
-      ...inbox.find((e) => e.id === id)!,
+      ...[...inbox, ...longInbox].find((e) => e.id === id)!,
       body: 'See you at noon.\n\nOn Sun, Oct 25, 2026 Bob wrote:\n> Lunch?',
       attachments: ['menu.pdf'],
     })),
@@ -47,11 +64,11 @@ describe('createTools', () => {
   it('leaves every tool active so the model can see the email tools', () => {
     const tools = createTools({ mailbox: fakeMailbox(), sessions: new CallSessions(), pin: '4829', timezone: 'UTC' });
     const active = Object.fromEntries(tools.map((t) => [t.name, t.extraFields?.['active'] ?? true]));
-    expect(active).toEqual({ verify_pin: true, check_inbox: true, search_emails: true, read_email: true });
+    expect(active).toEqual({ verify_pin: true, check_inbox: true, search_emails: true, more_emails: true, read_email: true });
   });
 
   describe('before the PIN', () => {
-    it.each(['check_inbox', 'search_emails', 'read_email'])('%s refuses and does not touch Gmail', async (name) => {
+    it.each(['check_inbox', 'search_emails', 'more_emails', 'read_email'])('%s refuses and does not touch Gmail', async (name) => {
       const result = await ctx.run(name, { query: 'x', number: 1 });
       expect(result.response).toMatch(/not been verified/);
       expect(ctx.mailbox.search).not.toHaveBeenCalled();
@@ -112,13 +129,13 @@ describe('createTools', () => {
 
     it('caps and defaults the list size', async () => {
       await ctx.run('check_inbox', { max: 500 });
-      expect(ctx.mailbox.search).toHaveBeenLastCalledWith('in:inbox is:unread', 10);
+      expect(ctx.mailbox.search).toHaveBeenLastCalledWith('in:inbox is:unread', 25);
       await ctx.run('check_inbox', {});
-      expect(ctx.mailbox.search).toHaveBeenLastCalledWith('in:inbox is:unread', 5);
+      expect(ctx.mailbox.search).toHaveBeenLastCalledWith('in:inbox is:unread', 10);
     });
 
     it('check_inbox says when there is nothing unread', async () => {
-      const empty = setup(fakeMailbox({ unreadCount: async () => 0, search: async () => [] }));
+      const empty = setup(fakeMailbox({ unreadCount: async () => 0, search: async () => ({ emails: [] }) }));
       empty.sessions.open('c-1');
       await empty.run('verify_pin', { pin: '4829' });
       expect((await empty.run('check_inbox')).response).toBe('The inbox has no unread emails.');
@@ -126,7 +143,7 @@ describe('createTools', () => {
 
     it('search_emails passes the query through and marks unread results', async () => {
       const result = await ctx.run('search_emails', { query: '  from:jane newer_than:7d ' });
-      expect(ctx.mailbox.search).toHaveBeenCalledWith('from:jane newer_than:7d', 5);
+      expect(ctx.mailbox.search).toHaveBeenCalledWith('from:jane newer_than:7d', 10);
       expect(result.response).toContain('Found 2 emails');
       expect(result.response).toContain('today at 8:15 AM, unread.');
     });
@@ -157,6 +174,61 @@ describe('createTools', () => {
         expect((await ctx.run('read_email', { number })).response).toMatch(/no email number .* had 2 emails/);
       }
       expect(ctx.mailbox.read).not.toHaveBeenCalled();
+    });
+
+    describe('paging', () => {
+      let paged: ReturnType<typeof setup>;
+      beforeEach(async () => {
+        paged = setup(fakeMailbox({ search: pagedSearch(longInbox) }));
+        paged.sessions.open('c-1');
+        await paged.run('verify_pin', { pin: '4829' });
+      });
+
+      it('offers more_emails only when another page exists', async () => {
+        expect((await paged.run('check_inbox', { max: 2 })).response).toMatch(/call more_emails/);
+        expect((await paged.run('check_inbox', { max: 25 })).response).not.toMatch(/more_emails/);
+      });
+
+      it('more_emails fetches the next page and continues the numbering', async () => {
+        await paged.run('search_emails', { query: 'subject:note', max: 2 });
+        const result = await paged.run('more_emails');
+        expect(paged.mailbox.search).toHaveBeenLastCalledWith('subject:note', 2, '2');
+        expect(result.response).toContain('Emails 3 to 4, newest first:');
+        expect(result.response).toContain('3. From Sender 3, subject "Note 3"');
+        expect(result.response).toContain('unread.');
+        expect(result.response).toMatch(/call more_emails/);
+        expect(paged.sessions.get('c-1')?.lastResults).toEqual(['p1', 'p2', 'p3', 'p4']);
+      });
+
+      it('read_email opens an email from a later page by its continued number', async () => {
+        await paged.run('check_inbox', { max: 2 });
+        await paged.run('more_emails');
+        const result = await paged.run('read_email', { number: 4 });
+        expect(paged.mailbox.read).toHaveBeenCalledWith('p4');
+        expect(result.response).toContain('Email 4:');
+      });
+
+      it('more_emails says when the list has run out', async () => {
+        await paged.run('check_inbox', { max: 3 });
+        expect((await paged.run('more_emails')).response).not.toMatch(/call more_emails/);
+        vi.mocked(paged.mailbox.search).mockClear();
+        expect((await paged.run('more_emails')).response).toMatch(/no more emails/);
+        expect(paged.mailbox.search).not.toHaveBeenCalled();
+      });
+
+      it('more_emails needs a list first', async () => {
+        expect((await paged.run('more_emails')).response).toMatch(/no list yet/);
+        expect(paged.mailbox.search).not.toHaveBeenCalled();
+      });
+
+      it('a new search starts a fresh list', async () => {
+        await paged.run('check_inbox', { max: 2 });
+        await paged.run('more_emails');
+        await paged.run('search_emails', { query: 'from:sender', max: 2 });
+        expect(paged.sessions.get('c-1')?.lastResults).toEqual(['p1', 'p2']);
+        await paged.run('more_emails');
+        expect(paged.mailbox.search).toHaveBeenLastCalledWith('from:sender', 2, '2');
+      });
     });
 
     it('turns Gmail errors into a spoken apology and logs a hint for invalid_grant', async () => {

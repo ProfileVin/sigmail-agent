@@ -14,10 +14,16 @@ export interface EmailDetail extends EmailSummary {
   attachments: string[];
 }
 
+export interface SearchPage {
+  emails: EmailSummary[];
+  /** Present when more results follow; pass it back to `search` for the next page. */
+  nextPageToken?: string;
+}
+
 /** Read-only view of one mailbox; the tools depend on this, not on Gmail. */
 export interface Mailbox {
   unreadCount(): Promise<number>;
-  search(query: string, max: number): Promise<EmailSummary[]>;
+  search(query: string, max: number, pageToken?: string): Promise<SearchPage>;
   read(id: string): Promise<EmailDetail>;
 }
 
@@ -50,10 +56,10 @@ export class GmailMailbox implements Mailbox {
     return data.messagesUnread ?? 0;
   }
 
-  async search(query: string, max: number): Promise<EmailSummary[]> {
-    const { data } = await this.gmail.users.messages.list({ userId: 'me', q: query, maxResults: max });
+  async search(query: string, max: number, pageToken?: string): Promise<SearchPage> {
+    const { data } = await this.gmail.users.messages.list({ userId: 'me', q: query, maxResults: max, pageToken });
     const ids = (data.messages ?? []).flatMap((m) => (m.id ? [m.id] : []));
-    return Promise.all(
+    const emails = await Promise.all(
       ids.map(async (id) => {
         const res = await this.gmail.users.messages.get({
           userId: 'me',
@@ -64,6 +70,7 @@ export class GmailMailbox implements Mailbox {
         return toSummary(res.data);
       }),
     );
+    return { emails, nextPageToken: data.nextPageToken ?? undefined };
   }
 
   async read(id: string): Promise<EmailDetail> {

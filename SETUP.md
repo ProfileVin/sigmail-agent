@@ -101,8 +101,14 @@ npm install
    - **Branding:** an app name and your email
    - **Audience:** **External**, then **Publish app** (status **In production**)
    - **Data Access:** add the scope `.../auth/gmail.readonly`
-4. Go to **Clients → Create client → Desktop app → Create**, then **Download JSON**.
+4. Go to **Clients → Create client → Desktop app → Create**, then click **Download JSON** in the dialog that appears. This is your only chance: the client's page no longer offers the download or shows the secret later.
 5. Save the file as `secrets/credentials.json` in this project. Create the `secrets` folder if it doesn't exist.
+
+Missed the download, or lost the file? Open the client, click **Add secret**, and copy the new secret right away (it's shown once). Then write `secrets/credentials.json` yourself, with the Client ID from that page:
+```json
+{"installed":{"client_id":"123-abc.apps.googleusercontent.com","client_secret":"GOCSPX-xxxx"}}
+```
+Run step 3.4 again, then disable the old secret on the client's page.
 
 **You should see:** `secrets/credentials.json` with an `"installed"` section in it.
 

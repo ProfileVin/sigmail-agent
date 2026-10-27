@@ -4,8 +4,17 @@ export interface CallSession {
   /** True once the caller has said the correct PIN. */
   unlocked: boolean;
   pinAttempts: number;
-  /** Gmail message ids from the last list read to the caller, in spoken order. */
+  /** Gmail message ids of the current list across every page read so far, in spoken order. */
   lastResults: string[];
+  /** The search behind the current list, so more_emails can fetch its next page. */
+  lastSearch?: ListSearch;
+}
+
+export interface ListSearch {
+  query: string;
+  pageSize: number;
+  markUnread: boolean;
+  nextPageToken?: string;
 }
 
 export interface CallSessionsOptions {

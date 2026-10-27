@@ -1,8 +1,8 @@
 import { FunctionResult, type SwaigFunctionOptions, type SwaigRequest } from '@signalwire/sdk';
-import type { EmailSummary, Mailbox } from './gmail/mailbox.js';
+import type { EmailSummary, Mailbox, SearchPage } from './gmail/mailbox.js';
 import { cleanForSpeech, speakableSender, speakableWhen } from './gmail/speech.js';
 import { pinMatches } from './security.js';
-import type { CallSession, CallSessions } from './sessions.js';
+import type { CallSession, CallSessions, ListSearch } from './sessions.js';
 
 export interface ToolDeps {
   mailbox: Mailbox;
@@ -13,8 +13,8 @@ export interface ToolDeps {
   log?: (message: string) => void;
 }
 
-const DEFAULT_LIST_SIZE = 5;
-const MAX_LIST_SIZE = 10;
+const DEFAULT_LIST_SIZE = 10;
+const MAX_LIST_SIZE = 25;
 const MAX_QUERY_LENGTH = 300;
 const MAX_ATTACHMENTS_SPOKEN = 5;
 
@@ -49,14 +49,25 @@ export function createTools(deps: ToolDeps): SwaigFunctionOptions[] {
     return session?.unlocked ? session : undefined;
   };
 
-  const describe = (emails: EmailSummary[], markUnread: boolean): string =>
+  const describe = (emails: EmailSummary[], markUnread: boolean, offset = 0): string =>
     emails
       .map((email, i) => {
         const subject = email.subject.trim() ? `"${email.subject.trim()}"` : 'no subject';
         const status = markUnread && email.unread ? ', unread' : '';
-        return `${i + 1}. From ${speakableSender(email.from)}, subject ${subject}, ${speakableWhen(email.date, now(), timezone)}${status}.`;
+        return `${offset + i + 1}. From ${speakableSender(email.from)}, subject ${subject}, ${speakableWhen(email.date, now(), timezone)}${status}.`;
       })
       .join('\n');
+
+  /** Makes `page` the call's current list, replacing any earlier one. */
+  const startList = (session: CallSession, search: Omit<ListSearch, 'nextPageToken'>, page: SearchPage): void => {
+    session.lastResults = page.emails.map((e) => e.id);
+    session.lastSearch = { ...search, nextPageToken: page.nextPageToken };
+  };
+
+  const moreHint = (search: ListSearch | undefined): string =>
+    search?.nextPageToken ? 'More emails are available: if the caller wants them, call more_emails.\n' : '';
+
+  const pickPrompt = 'Read the list to the caller and ask which number they want to hear.';
 
   /** Gmail failures become something the agent can say instead of a dead tool call. */
   const withMailbox = async (action: string, run: () => Promise<FunctionResult>): Promise<FunctionResult> => {
@@ -114,17 +125,16 @@ export function createTools(deps: ToolDeps): SwaigFunctionOptions[] {
         const session = unlockedSession(rawData);
         if (!session) return notVerified();
         return withMailbox('inbox check', async () => {
-          const [count, emails] = await Promise.all([
-            mailbox.unreadCount(),
-            mailbox.search('in:inbox is:unread', listSize(args['max'])),
-          ]);
-          session.lastResults = emails.map((e) => e.id);
+          const query = 'in:inbox is:unread';
+          const pageSize = listSize(args['max']);
+          const [count, page] = await Promise.all([mailbox.unreadCount(), mailbox.search(query, pageSize)]);
+          startList(session, { query, pageSize, markUnread: false }, page);
+          const { emails } = page;
           if (emails.length === 0) return new FunctionResult('The inbox has no unread emails.');
           const total = Math.max(count, emails.length);
           return new FunctionResult(
             `There ${total === 1 ? 'is' : 'are'} ${plural(total, 'unread email')} in the inbox. ` +
-              `Newest first:\n${describe(emails, false)}\n` +
-              'Read the list to the caller and ask which number they want to hear.',
+              `Newest first:\n${describe(emails, false)}\n${moreHint(session.lastSearch)}${pickPrompt}`,
           );
         });
       },
@@ -147,14 +157,42 @@ export function createTools(deps: ToolDeps): SwaigFunctionOptions[] {
         const query = String(args['query'] ?? '').trim().slice(0, MAX_QUERY_LENGTH);
         if (!query) return new FunctionResult('Ask the caller what to search for.');
         return withMailbox('search', async () => {
-          const emails = await mailbox.search(query, listSize(args['max']));
-          session.lastResults = emails.map((e) => e.id);
+          const pageSize = listSize(args['max']);
+          const page = await mailbox.search(query, pageSize);
+          startList(session, { query, pageSize, markUnread: true }, page);
+          const { emails } = page;
           if (emails.length === 0) {
             return new FunctionResult(`No emails match that search (${query}). Offer to search a different way.`);
           }
           return new FunctionResult(
             `Found ${plural(emails.length, 'email')}, newest first:\n${describe(emails, true)}\n` +
-              'Read the list to the caller and ask which number they want to hear.',
+              `${moreHint(session.lastSearch)}${pickPrompt}`,
+          );
+        });
+      },
+    },
+    {
+      name: 'more_emails',
+      description:
+        'Get the next page of the most recent inbox check or search. Numbering continues from the emails already listed.',
+      parameters: {},
+      fillers: { 'en-US': ['Getting the next ones.', 'One moment.'] },
+      handler: (_args, rawData) => {
+        const session = unlockedSession(rawData);
+        if (!session) return notVerified();
+        const search = session.lastSearch;
+        if (!search) return new FunctionResult('There is no list yet. Check the inbox or search first.');
+        const token = search.nextPageToken;
+        if (!token) return new FunctionResult('There are no more emails in that list.');
+        return withMailbox('next page', async () => {
+          const page = await mailbox.search(search.query, search.pageSize, token);
+          const offset = session.lastResults.length;
+          session.lastResults.push(...page.emails.map((e) => e.id));
+          search.nextPageToken = page.nextPageToken;
+          if (page.emails.length === 0) return new FunctionResult('There are no more emails in that list.');
+          return new FunctionResult(
+            `Emails ${offset + 1} to ${offset + page.emails.length}, newest first:\n` +
+              `${describe(page.emails, search.markUnread, offset)}\n${moreHint(search)}${pickPrompt}`,
           );
         });
       },

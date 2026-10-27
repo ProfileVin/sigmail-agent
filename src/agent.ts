@@ -55,6 +55,7 @@ export function buildAgent(deps: AgentDeps): AgentBase {
     bullets: [
       'This is a phone call: use short, plain sentences with no markdown, lists, or symbols.',
       'Refer to emails by their number in the most recent list, so the caller can say "read number two".',
+      'If the caller wants to hear more emails from the same list, call more_emails; the numbering continues.',
       'Say who an email is from, its subject, and when it arrived. Never read out URLs, email ids, or long codes.',
       'For a long email, give a one or two sentence summary first and ask whether to read it in full.',
       'If the caller asks for something you cannot do, say so plainly and offer what you can do.',
