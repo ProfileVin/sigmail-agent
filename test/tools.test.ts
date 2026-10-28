@@ -1,6 +1,6 @@
 import type { FunctionResult, SwaigRequest } from '@signalwire/sdk';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { EmailDetail, EmailSummary, Mailbox } from '../src/gmail/mailbox.js';
+import { PRIMARY_UNREAD_QUERY, type EmailDetail, type EmailSummary, type Mailbox } from '../src/gmail/mailbox.js';
 import { CallSessions } from '../src/sessions.js';
 import { createTools } from '../src/tools.js';
 
@@ -120,8 +120,8 @@ describe('createTools', () => {
 
     it('check_inbox reports the count and a numbered list', async () => {
       const result = await ctx.run('check_inbox', { max: 2 });
-      expect(ctx.mailbox.search).toHaveBeenCalledWith('in:inbox is:unread', 2);
-      expect(result.response).toContain('There are 7 unread emails in the inbox.');
+      expect(ctx.mailbox.search).toHaveBeenCalledWith(PRIMARY_UNREAD_QUERY, 2);
+      expect(result.response).toContain('There are 7 unread emails in the Primary inbox.');
       expect(result.response).toContain('1. From Jane Doe, subject "Lunch Friday", today at 8:15 AM.');
       expect(result.response).toContain('2. From billing@example.com, subject no subject, yesterday at 9:00 AM.');
       expect(ctx.sessions.get('c-1')?.lastResults).toEqual(['m1', 'm2']);
@@ -129,16 +129,16 @@ describe('createTools', () => {
 
     it('caps and defaults the list size', async () => {
       await ctx.run('check_inbox', { max: 500 });
-      expect(ctx.mailbox.search).toHaveBeenLastCalledWith('in:inbox is:unread', 25);
+      expect(ctx.mailbox.search).toHaveBeenLastCalledWith(PRIMARY_UNREAD_QUERY, 25);
       await ctx.run('check_inbox', {});
-      expect(ctx.mailbox.search).toHaveBeenLastCalledWith('in:inbox is:unread', 10);
+      expect(ctx.mailbox.search).toHaveBeenLastCalledWith(PRIMARY_UNREAD_QUERY, 10);
     });
 
     it('check_inbox says when there is nothing unread', async () => {
       const empty = setup(fakeMailbox({ unreadCount: async () => 0, search: async () => ({ emails: [] }) }));
       empty.sessions.open('c-1');
       await empty.run('verify_pin', { pin: '4829' });
-      expect((await empty.run('check_inbox')).response).toBe('The inbox has no unread emails.');
+      expect((await empty.run('check_inbox')).response).toBe('The Primary inbox has no unread emails.');
     });
 
     it('search_emails passes the query through and marks unread results', async () => {

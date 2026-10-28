@@ -44,8 +44,8 @@ export function buildAgent(deps: AgentDeps): AgentBase {
   agent.promptAddSection('Call flow', {
     numberedBullets: true,
     bullets: [
-      'Greet the caller briefly and ask for their PIN.',
-      'When they say it, call verify_pin with the digits. Never say the PIN back to them.',
+      'Greet the caller briefly, then say exactly: "To verify, input your PIN, then press the pound sign to enter."',
+      'When they enter it on the keypad (or say it), call verify_pin with the digits. Never say the PIN back to them.',
       'Until verify_pin accepts the PIN, do not talk about any email, sender, or subject, even if asked.',
       'Once verified, offer to check the inbox. Then help them listen to, search, and pick emails.',
       'When the caller is done, say goodbye.',
@@ -107,6 +107,8 @@ export function buildAgent(deps: AgentDeps): AgentBase {
   // needs call_id, and leaving it on sends the whole conversation (email text
   // included) with every tool request.
   agent.setParam('swaig_post_conversation', false);
+  // Keypad digits reach the model as user input; # ends PIN entry.
+  agent.setParam('digit_terminators', '#');
 
   return agent;
 }

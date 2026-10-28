@@ -152,7 +152,7 @@ npm run dev
 
 **You should see:**
 ```
-[sigmail] Gmail connected: 12 unread in the inbox
+[sigmail] Gmail connected: 12 unread in Primary
 [sigmail] Allowlisted callers: 1
 ... Agent 'sigmail' running at http://0.0.0.0:3000/
 ... Proxy URL: https://your-name.ngrok-free.dev

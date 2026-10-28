@@ -30,7 +30,7 @@ async function start(): Promise<AgentBase> {
   if (process.env['SWAIG_CLI_MODE'] !== 'true') {
     try {
       const unread = await mailbox.unreadCount();
-      log(`Gmail connected: ${unread} unread in the inbox`);
+      log(`Gmail connected: ${unread} unread in Primary`);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       throw new Error(`Gmail check failed: ${message}. If the token expired or was revoked, run "npm run authorize".`);

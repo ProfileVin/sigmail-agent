@@ -1,5 +1,5 @@
 import { FunctionResult, type SwaigFunctionOptions, type SwaigRequest } from '@signalwire/sdk';
-import type { EmailSummary, Mailbox, SearchPage } from './gmail/mailbox.js';
+import { PRIMARY_UNREAD_QUERY, type EmailSummary, type Mailbox, type SearchPage } from './gmail/mailbox.js';
 import { cleanForSpeech, speakableSender, speakableWhen } from './gmail/speech.js';
 import { pinMatches } from './security.js';
 import type { CallSession, CallSessions, ListSearch } from './sessions.js';
@@ -35,7 +35,7 @@ function goodbye(message: string): FunctionResult {
 
 function notVerified(): FunctionResult {
   return new FunctionResult(
-    'The caller has not been verified. Do not discuss any email. Ask for their PIN and call verify_pin.',
+    'The caller has not been verified. Do not discuss any email. Ask them to input their PIN on the keypad and press pound, then call verify_pin.',
   );
 }
 
@@ -87,9 +87,9 @@ export function createTools(deps: ToolDeps): SwaigFunctionOptions[] {
   return [
     {
       name: 'verify_pin',
-      description: 'Check the PIN the caller says. Call this before any email tool, as soon as the caller gives a PIN.',
+      description: 'Check the PIN the caller enters or says. Call this before any email tool, as soon as the caller gives a PIN.',
       parameters: {
-        pin: { type: 'string', description: 'The digits the caller said, digits only, e.g. "4829".' },
+        pin: { type: 'string', description: 'The digits the caller entered or said, digits only, e.g. "4829".' },
       },
       required: ['pin'],
       handler: (args, rawData) => {
@@ -111,12 +111,12 @@ export function createTools(deps: ToolDeps): SwaigFunctionOptions[] {
           return goodbye('That PIN is not correct and there are no attempts left. Tell the caller you cannot continue, say goodbye, and end the call.');
         }
         const left = sessions.maxPinAttempts - session.pinAttempts;
-        return new FunctionResult(`That PIN is not correct. The caller has ${plural(left, 'attempt')} left. Ask them to say it again.`);
+        return new FunctionResult(`That PIN is not correct. The caller has ${plural(left, 'attempt')} left. Ask them to input it again and press pound.`);
       },
     },
     {
       name: 'check_inbox',
-      description: 'Get the number of unread emails in the inbox and a numbered list of the newest unread ones.',
+      description: 'Get the number of unread emails in the Primary inbox and a numbered list of the newest unread ones. Promotions, Social, and Updates are left out.',
       parameters: {
         max: { type: 'integer', description: `How many unread emails to list, 1 to ${MAX_LIST_SIZE}. Default ${DEFAULT_LIST_SIZE}.` },
       },
@@ -125,15 +125,15 @@ export function createTools(deps: ToolDeps): SwaigFunctionOptions[] {
         const session = unlockedSession(rawData);
         if (!session) return notVerified();
         return withMailbox('inbox check', async () => {
-          const query = 'in:inbox is:unread';
+          const query = PRIMARY_UNREAD_QUERY;
           const pageSize = listSize(args['max']);
           const [count, page] = await Promise.all([mailbox.unreadCount(), mailbox.search(query, pageSize)]);
           startList(session, { query, pageSize, markUnread: false }, page);
           const { emails } = page;
-          if (emails.length === 0) return new FunctionResult('The inbox has no unread emails.');
+          if (emails.length === 0) return new FunctionResult('The Primary inbox has no unread emails.');
           const total = Math.max(count, emails.length);
           return new FunctionResult(
-            `There ${total === 1 ? 'is' : 'are'} ${plural(total, 'unread email')} in the inbox. ` +
+            `There ${total === 1 ? 'is' : 'are'} ${plural(total, 'unread email')} in the Primary inbox. ` +
               `Newest first:\n${describe(emails, false)}\n${moreHint(session.lastSearch)}${pickPrompt}`,
           );
         });
